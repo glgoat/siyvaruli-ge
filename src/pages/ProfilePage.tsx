@@ -114,7 +114,6 @@ export function ProfilePage() {
                 canEdit={editing}
                 onDelete={() => photos[i] && deletePhoto(photos[i].id, user!.id, setPhotos)}
                 onUpload={editing ? (file) => uploadPhoto(file, user!.id, i, setPhotos) : undefined}
-                t={t}
               />
             ))}
           </div>
@@ -272,14 +271,13 @@ async function deletePhoto(photoId: string, userId: string, setPhotos: React.Dis
   setPhotos((prev) => prev.filter((p) => p.id !== photoId));
 }
 
-function PhotoSlot({ photo, index, isMain, canEdit, onDelete, onUpload, t }: {
+function PhotoSlot({ photo, index, isMain, canEdit, onDelete, onUpload }: {
   photo?: Photo;
   index: number;
   isMain: boolean;
   canEdit: boolean;
   onDelete?: () => void;
   onUpload?: (file: File) => void;
-  t: (k: TranslationKey) => string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -288,7 +286,7 @@ function PhotoSlot({ photo, index, isMain, canEdit, onDelete, onUpload, t }: {
       {photo ? (
         <>
           <img src={photo.url} alt="" className="w-full h-full object-cover" />
-          {isMain && <span className="absolute top-1 left-1 text-[10px] bg-primary-500 text-white px-1.5 py-0.5 rounded font-medium">{t('common.main')}</span>}
+          {isMain && <span className="absolute top-1 left-1 text-[10px] bg-primary-500 text-white px-1.5 py-0.5 rounded font-medium">Main</span>}
           {canEdit && (
             <button onClick={onDelete} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <X size={14} />
