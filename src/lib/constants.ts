@@ -94,7 +94,7 @@ export function formatLastActive(lastActive: string, lang: 'ka' | 'en' = 'ka'): 
   if (isOnline(lastActive)) {
     return lang === 'ka' ? 'ონლაინ' : 'Online';
   }
-  return lang === 'ka' ? `ბოლოს ქმედი ${timeAgo(lastActive, 'ka')}` : `Last active ${timeAgo(lastActive, 'en')}`;
+  return lang === 'ka' ? `ბოლო აქტივობა ${timeAgo(lastActive, 'ka')}` : `Last active ${timeAgo(lastActive, 'en')}`;
 }
 
 export function initials(name: string): string {
