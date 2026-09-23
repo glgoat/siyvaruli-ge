@@ -159,7 +159,7 @@ export const translations = {
 
     // Likes
     'likes.title': 'მოწონებები',
-    'likes.empty': 'ჯერ ვინმეს არ მოგწონხარ',
+    'likes.empty': 'ჯერ ვინმეს არ მოსწონებიხარ',
     'likes.emptyDesc': 'ადამიანები დაგიწყებენ მოწონებას როცა შენს პროფილს ნახავენ.',
     'likes.whoLiked': 'ვინ მოგწონთ',
     'likes.whoLikedDesc': 'ამ ადამიანებმა მოგიწონეს. მოიწონე უკან და დაემთხვიე.',
