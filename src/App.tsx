@@ -15,6 +15,7 @@ import { ProfilePage } from '@/pages/ProfilePage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { VerificationPage } from '@/pages/VerificationPage';
+import { AdminPage } from '@/pages/AdminPage';
 import { PublicPage } from '@/pages/PublicPages';
 import { LoadingScreen } from '@/components/ui/Feedback';
 
