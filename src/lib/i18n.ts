@@ -107,7 +107,7 @@ export const translations = {
 
     // Discover
     'discover.title': 'აღმოჩენა',
-    'discover.noMore': 'მეტ პროფილებს ვერ ვიპოვე',
+    'discover.noMore': 'მეტი პროფილი ვერ ვიპოვე',
     'discover.noMoreDesc': 'შენ უკვე ნახე ყველა პროფილი ამ ფილტრებით. შეცვალე ფილტრები ან მოგვიანებით დაბრუნდი.',
     'discover.filters': 'ფილტრები',
     'discover.ageRange': 'ასაკი',
