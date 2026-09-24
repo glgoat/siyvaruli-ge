@@ -21,6 +21,63 @@ export const GEORGIAN_CITIES = [
   'ყვარლი',
 ] as const;
 
+export const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
+  'თბილისი': { lat: 41.7151, lng: 44.8271 },
+  'ბათუმი': { lat: 41.6168, lng: 41.6367 },
+  'ქუთაისი': { lat: 42.2679, lng: 42.7189 },
+  'რუსთავი': { lat: 41.5495, lng: 44.9932 },
+  'გორი': { lat: 41.9842, lng: 44.1153 },
+  'ზუგდიდი': { lat: 42.5088, lng: 41.8709 },
+  'თელავი': { lat: 41.9026, lng: 45.4731 },
+  'ფოთი': { lat: 42.5154, lng: 41.6903 },
+  'სოხუმი': { lat: 43.0, lng: 41.0 },
+  'სამტრედია': { lat: 42.1556, lng: 42.1911 },
+  'მარნეული': { lat: 41.4744, lng: 44.8103 },
+  'ახალციხე': { lat: 41.6418, lng: 42.9983 },
+  'ახალქალაქი': { lat: 41.4078, lng: 43.4819 },
+  'სენაკი': { lat: 42.2672, lng: 42.0733 },
+  'ბოლნისი': { lat: 41.4506, lng: 44.5333 },
+  'ქარელი': { lat: 42.1869, lng: 43.9989 },
+  'ჭიათურა': { lat: 42.2933, lng: 43.4464 },
+  'ცაგერი': { lat: 42.5669, lng: 42.6608 },
+  'ოზურგეთი': { lat: 42.2028, lng: 42.0275 },
+  'ყვარლი': { lat: 41.5222, lng: 45.8306 },
+};
+
+export function getCityCoordinates(city: string): { lat: number; lng: number } | null {
+  return CITY_COORDINATES[city] || null;
+}
+
+export function calculateDistance(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+export function formatDistance(km: number, lang: 'ka' | 'en' = 'ka'): string {
+  if (km < 1) {
+    const m = Math.round(km * 1000);
+    return lang === 'ka' ? `${m} მ` : `${m} m`;
+  }
+  if (km < 10) {
+    return lang === 'ka' ? `${km.toFixed(1)} კმ` : `${km.toFixed(1)} km`;
+  }
+  return lang === 'ka' ? `${Math.round(km)} კმ` : `${Math.round(km)} km`;
+}
+
 export const INTEREST_KEYS = [
   'music', 'travel', 'food', 'sports', 'movies', 'reading', 'gaming',
   'art', 'cooking', 'photography', 'hiking', 'yoga', 'dancing',

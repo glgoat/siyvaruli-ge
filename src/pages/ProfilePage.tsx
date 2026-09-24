@@ -5,7 +5,7 @@ import { useLanguage } from '@/lib/language-context';
 import { useToast } from '@/lib/toast-context';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
-import { calculateAge, isOnline, formatLastActive, GEORGIAN_CITIES, INTEREST_KEYS } from '@/lib/constants';
+import { calculateAge, isOnline, formatLastActive, GEORGIAN_CITIES, INTEREST_KEYS, getCityCoordinates } from '@/lib/constants';
 import type { Photo, Interest } from '@/lib/types';
 import type { TranslationKey } from '@/lib/i18n';
 
@@ -79,6 +79,7 @@ export function ProfilePage() {
           ) : (
             <button
               onClick={async () => {
+                const coords = getCityCoordinates(editData.city);
                 await supabase.from('profiles').update({
                   first_name: editData.first_name,
                   bio: editData.bio,
@@ -88,6 +89,8 @@ export function ProfilePage() {
                   height: editData.height || null,
                   relationship_intention: editData.relationship_intention || null,
                   languages: editData.languages,
+                  latitude: coords?.lat ?? null,
+                  longitude: coords?.lng ?? null,
                 }).eq('id', user!.id);
                 await refreshProfile();
                 setEditing(false);

@@ -10,7 +10,7 @@ import { Modal, ModalBody } from '@/components/ui/Modal';
 import type { TranslationKey } from '@/lib/i18n';
 
 export function SettingsPage() {
-  const { user, profile, settings, refreshSettings, signOut } = useAuth();
+  const { user, profile, settings, refreshProfile, refreshSettings, signOut } = useAuth();
   const { t, lang, setLang } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useToast();
@@ -50,6 +50,7 @@ export function SettingsPage() {
   const togglePause = async () => {
     if (!user || !profile) return;
     await supabase.from('profiles').update({ is_paused: !profile.is_paused }).eq('id', user.id);
+    await refreshProfile();
     showToast(t('settings.saved'), 'success');
   };
 
@@ -97,7 +98,7 @@ export function SettingsPage() {
 
         {/* Account actions */}
         <Section title={t('settings.account')}>
-          <SettingRow icon={<Pause size={20} />} label={t('settings.pauseAccount')} desc={t('settings.pauseAccountDesc')} onClick={togglePause} />
+          <SettingRow icon={<Pause size={20} />} label={profile?.is_paused ? t('settings.resumeAccount') : t('settings.pauseAccount')} desc={t('settings.pauseAccountDesc')} onClick={togglePause} />
           <SettingRow icon={<LogOut size={20} />} label={t('settings.logout')} onClick={signOut} />
           <SettingRow icon={<Trash2 size={20} />} label={t('settings.deleteAccount')} desc={t('settings.deleteAccountDesc')} danger onClick={() => setShowDelete(true)} />
         </Section>

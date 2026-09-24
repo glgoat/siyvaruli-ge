@@ -126,6 +126,9 @@ export const translations = {
     'discover.about': 'შესახებ',
     'discover.basicInfo': 'ძირითადი',
     'discover.loading': 'იტვირთება...',
+    'discover.distance': 'დაშორება',
+    'discover.useMyLocation': 'ჩემი ლოკაციის გამოყენება',
+    'discover.locationError': 'ლოკაციის მიღება ვერ მოხერხდა',
 
     // Matches
     'matches.title': 'მატჩები',
@@ -207,6 +210,7 @@ export const translations = {
     'settings.messageNotifications': 'შეტყობინებების გაფრთხილებები',
     'settings.likeNotifications': 'მოწონების გაფრთხილებები',
     'settings.pauseAccount': 'ანგარიშის დაპაუზება',
+    'settings.resumeAccount': 'ანგარიშის გააქტიურება',
     'settings.pauseAccountDesc': 'შენი პროფილი არ გამოჩნდება აღმოჩენაში.',
     'settings.deleteAccount': 'ანგარიშის წაშლა',
     'settings.deleteAccountDesc': 'შენი ანგარიშის წაშლა სამუდამოა. ყველა მონაცემი წაიშლება.',
@@ -511,6 +515,9 @@ export const translations = {
     'discover.about': 'About',
     'discover.basicInfo': 'Basic info',
     'discover.loading': 'Loading...',
+    'discover.distance': 'Distance',
+    'discover.useMyLocation': 'Use my location',
+    'discover.locationError': 'Could not get your location',
 
     'matches.title': 'Matches',
     'matches.new': 'New matches',
@@ -587,6 +594,7 @@ export const translations = {
     'settings.messageNotifications': 'Message notifications',
     'settings.likeNotifications': 'Like notifications',
     'settings.pauseAccount': 'Pause account',
+    'settings.resumeAccount': 'Resume account',
     'settings.pauseAccountDesc': 'Your profile will not appear in discovery.',
     'settings.deleteAccount': 'Delete account',
     'settings.deleteAccountDesc': 'Deleting your account is permanent. All data will be removed.',

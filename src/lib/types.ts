@@ -25,6 +25,8 @@ export interface Profile {
   is_suspended: boolean;
   suspended_until: string | null;
   profile_completed: boolean;
+  latitude: number | null;
+  longitude: number | null;
   last_active: string;
   created_at: string;
   updated_at: string;
@@ -173,4 +175,5 @@ export interface DiscoveryProfile extends Profile {
   age: number;
   photo_count: number;
   has_liked_me: boolean;
+  distance: number | null;
 }

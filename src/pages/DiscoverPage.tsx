@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Heart, X, Undo, SlidersHorizontal, Info, MapPin, Briefcase, GraduationCap, Ruler, Languages as LangIcon, Sparkles } from 'lucide-react';
+import { Heart, X, Undo, SlidersHorizontal, Info, MapPin, Briefcase, GraduationCap, Ruler, Languages as LangIcon, Sparkles, Navigation } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useLanguage } from '@/lib/language-context';
 import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
-import { calculateAge, GEORGIAN_CITIES, isOnline, formatLastActive } from '@/lib/constants';
+import { calculateAge, GEORGIAN_CITIES, isOnline, formatLastActive, getCityCoordinates, calculateDistance, formatDistance } from '@/lib/constants';
 import type { DiscoveryProfile } from '@/lib/types';
 import type { TranslationKey } from '@/lib/i18n';
 import { EmptyState } from '@/components/ui/Feedback';
 import { Modal, ModalBody } from '@/components/ui/Modal';
 
 export function DiscoverPage() {
-  const { user, profile, settings } = useAuth();
+  const { user, profile, settings, refreshProfile } = useAuth();
   const { t, lang } = useLanguage();
   const { showToast } = useToast();
   const [profiles, setProfiles] = useState<DiscoveryProfile[]>([]);
@@ -31,6 +31,12 @@ export function DiscoverPage() {
   const [ageMax, setAgeMax] = useState(settings?.discovery_age_max || 99);
   const [cityFilter, setCityFilter] = useState(settings?.discovery_city || '');
   const [intentionFilter, setIntentionFilter] = useState(settings?.discovery_intention || '');
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(
+    profile?.latitude && profile?.longitude
+      ? { lat: profile.latitude, lng: profile.longitude }
+      : profile?.city ? getCityCoordinates(profile.city) : null
+  );
+  const [locating, setLocating] = useState(false);
 
   const loadProfiles = useCallback(async () => {
     if (!user || !profile) return;
@@ -77,6 +83,13 @@ export function DiscoverPage() {
       return;
     }
 
+    // Determine user's location for distance calculation
+    const myLat = userLocation?.lat ?? profile?.latitude ?? null;
+    const myLng = userLocation?.lng ?? profile?.longitude ?? null;
+    const fallbackCoords = profile?.city ? getCityCoordinates(profile.city) : null;
+    const effectiveLat = myLat ?? fallbackCoords?.lat ?? null;
+    const effectiveLng = myLng ?? fallbackCoords?.lng ?? null;
+
     // Filter out already liked/passed
     const profileIds = data.map((p) => p.id);
     const [likedRes, passedRes] = await Promise.all([
@@ -98,17 +111,26 @@ export function DiscoverPage() {
         if (age === null) return false;
         return age >= ageMin && age <= ageMax;
       })
-      .map((p) => ({
-        ...p,
-        age: calculateAge(p.date_of_birth) || 0,
-        photo_count: p.photos?.length || 0,
-        has_liked_me: likedMeIds.has(p.id),
-      })) as DiscoveryProfile[];
+      .map((p) => {
+        const profileLat = p.latitude ?? (p.city ? getCityCoordinates(p.city)?.lat ?? null : null);
+        const profileLng = p.longitude ?? (p.city ? getCityCoordinates(p.city)?.lng ?? null : null);
+        let distance: number | null = null;
+        if (effectiveLat !== null && effectiveLng !== null && profileLat !== null && profileLng !== null) {
+          distance = calculateDistance(effectiveLat, effectiveLng, profileLat, profileLng);
+        }
+        return {
+          ...p,
+          age: calculateAge(p.date_of_birth) || 0,
+          photo_count: p.photos?.length || 0,
+          has_liked_me: likedMeIds.has(p.id),
+          distance,
+        };
+      }) as DiscoveryProfile[];
 
     setProfiles(filtered);
     setCurrentIndex(0);
     setLoading(false);
-  }, [user, profile, cityFilter, intentionFilter, ageMin, ageMax]);
+  }, [user, profile, cityFilter, intentionFilter, ageMin, ageMax, userLocation]);
 
   useEffect(() => {
     loadProfiles();
@@ -196,6 +218,34 @@ export function DiscoverPage() {
     loadProfiles();
   };
 
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      showToast(t('discover.locationError'), 'error');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setUserLocation({ lat: latitude, lng: longitude });
+        if (user) {
+          await supabase.from('profiles').update({
+            latitude,
+            longitude,
+          }).eq('id', user.id);
+          await refreshProfile();
+        }
+        setLocating(false);
+        showToast(t('settings.saved'), 'success');
+      },
+      () => {
+        showToast(t('discover.locationError'), 'error');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const currentProfile = profiles[currentIndex];
 
   return (
@@ -203,9 +253,19 @@ export function DiscoverPage() {
       {/* Header */}
       <div className="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 px-4 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">{t('discover.title')}</h1>
-        <button onClick={() => setShowFilters(true)} className="btn-ghost btn-sm">
-          <SlidersHorizontal size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleUseMyLocation}
+            disabled={locating}
+            className="btn-ghost btn-sm"
+            title={t('discover.useMyLocation')}
+          >
+            <Navigation size={18} className={locating ? 'animate-pulse' : ''} />
+          </button>
+          <button onClick={() => setShowFilters(true)} className="btn-ghost btn-sm">
+            <SlidersHorizontal size={18} />
+          </button>
+        </div>
       </div>
 
       <div className="max-w-md mx-auto px-4 py-4">
@@ -409,6 +469,12 @@ function SwipeCard({ profile, className = '', lang, t, onInfo }: { profile: Disc
             </div>
             <div className="flex items-center gap-3 text-white/80 text-sm mt-1">
               {profile.city && <span className="flex items-center gap-1"><MapPin size={14} /> {profile.city}</span>}
+              {profile.distance !== null && (
+                <span className="flex items-center gap-1 text-primary-300">
+                  <Navigation size={12} />
+                  {formatDistance(profile.distance, lang)}
+                </span>
+              )}
               {isOnline(profile.last_active) && <span className="flex items-center gap-1 text-success-400"><span className="w-2 h-2 rounded-full bg-success-400" /> {lang === 'ka' ? 'ონლაინ' : 'Online'}</span>}
             </div>
             {profile.occupation && <p className="text-white/70 text-sm mt-1">{profile.occupation}</p>}
@@ -471,6 +537,9 @@ function FullProfile({ profile, lang, t }: { profile: DiscoveryProfile; lang: 'k
         {/* Info grid */}
         <div className="grid grid-cols-2 gap-3">
           {profile.city && <InfoItem icon={<MapPin size={16} />} label={t('profile.basicInfo')} value={profile.city} />}
+          {profile.distance !== null && (
+            <InfoItem icon={<Navigation size={16} />} label={t('discover.distance')} value={formatDistance(profile.distance, lang)} />
+          )}
           {profile.occupation && <InfoItem icon={<Briefcase size={16} />} label={t('profile.occupation')} value={profile.occupation} />}
           {profile.education && <InfoItem icon={<GraduationCap size={16} />} label={t('profile.education')} value={profile.education} />}
           {profile.height && <InfoItem icon={<Ruler size={16} />} label={t('profile.height')} value={`${profile.height} cm`} />}
