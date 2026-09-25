@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useLanguage } from '@/lib/language-context';
 import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
-import { calculateAge, GEORGIAN_CITIES, isOnline, formatLastActive, getCityCoordinates, calculateDistance, formatDistance } from '@/lib/constants';
+import { calculateAge, GEORGIAN_CITIES, isOnline, formatLastActive, getCityCoordinates, getNearestCity, calculateDistance, formatDistance } from '@/lib/constants';
 import type { DiscoveryProfile } from '@/lib/types';
 import type { TranslationKey } from '@/lib/i18n';
 import { EmptyState } from '@/components/ui/Feedback';
@@ -25,25 +25,32 @@ export function DiscoverPage() {
   const cardRef = useRef<HTMLDivElement>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [btnAnim, setBtnAnim] = useState<'like' | 'pass' | null>(null);
 
   // Filter state
   const [ageMin, setAgeMin] = useState(settings?.discovery_age_min || 18);
   const [ageMax, setAgeMax] = useState(settings?.discovery_age_max || 99);
   const [cityFilter, setCityFilter] = useState(settings?.discovery_city || '');
   const [intentionFilter, setIntentionFilter] = useState(settings?.discovery_intention || '');
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(
-    profile?.latitude && profile?.longitude
-      ? { lat: profile.latitude, lng: profile.longitude }
-      : profile?.city ? getCityCoordinates(profile.city) : null
-  );
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
+
+  useEffect(() => {
+    if (userLocation) return;
+    if (profile?.latitude && profile?.longitude) {
+      setUserLocation({ lat: profile.latitude, lng: profile.longitude });
+    } else if (profile?.city) {
+      const coords = getCityCoordinates(profile.city);
+      if (coords) setUserLocation(coords);
+    }
+  }, [profile, userLocation]);
 
   const loadProfiles = useCallback(async () => {
     if (!user || !profile) return;
     setLoading(true);
 
     const genderFilter = profile.interested_in === 'men' ? 'male' : profile.interested_in === 'women' ? 'female' : null;
-    const cityToFilter = cityFilter || profile.city;
+    const cityToFilter = cityFilter || '';
 
     let query = supabase
       .from('profiles')
@@ -141,52 +148,59 @@ export function DiscoverPage() {
     const target = profiles[currentIndex];
     setExitDirection(direction);
     setLastSwipe({ targetId: target.id, type: direction === 'right' ? 'like' : 'pass' });
+    setBtnAnim(direction === 'right' ? 'like' : 'pass');
+    setTimeout(() => setBtnAnim(null), 400);
 
-    if (direction === 'right') {
-      const { data: existingLike } = await supabase
-        .from('likes')
-        .select('id')
-        .eq('liker_id', target.id)
-        .eq('liked_id', user.id)
-        .maybeSingle();
-
-      await supabase.from('likes').insert({ liker_id: user.id, liked_id: target.id });
-
-      if (existingLike) {
-        // It's a mutual match! The trigger will create the match.
-        setMatchData({ name: target.first_name, photo: target.photos?.[0]?.url || '' });
-      }
-
-      // Save undo info
-      await supabase.from('user_settings').update({
-        last_swipe_type: 'like',
-        last_swipe_target: target.id,
-        last_swipe_at: new Date().toISOString(),
-      }).eq('user_id', user.id);
-    } else {
-      await supabase.from('passes').insert({ passer_id: user.id, passed_id: target.id });
-      await supabase.from('user_settings').update({
-        last_swipe_type: 'pass',
-        last_swipe_target: target.id,
-        last_swipe_at: new Date().toISOString(),
-      }).eq('user_id', user.id);
-    }
-
+    // Advance index immediately for smooth UX
     setTimeout(() => {
       setCurrentIndex((prev) => prev + 1);
       setExitDirection(null);
     }, 300);
+
+    // Fire DB writes in background — don't block UI
+    (async () => {
+      if (direction === 'right') {
+        const { data: existingLike } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('liker_id', target.id)
+          .eq('liked_id', user.id)
+          .maybeSingle();
+
+        await supabase.from('likes').insert({ liker_id: user.id, liked_id: target.id });
+
+        if (existingLike) {
+          setMatchData({ name: target.first_name, photo: target.photos?.[0]?.url || '' });
+        }
+
+        await supabase.from('user_settings').update({
+          last_swipe_type: 'like',
+          last_swipe_target: target.id,
+          last_swipe_at: new Date().toISOString(),
+        }).eq('user_id', user.id);
+      } else {
+        await supabase.from('passes').insert({ passer_id: user.id, passed_id: target.id });
+        await supabase.from('user_settings').update({
+          last_swipe_type: 'pass',
+          last_swipe_target: target.id,
+          last_swipe_at: new Date().toISOString(),
+        }).eq('user_id', user.id);
+      }
+    })();
   };
 
   const handleUndo = async () => {
     if (!user || !lastSwipe) return;
-    if (lastSwipe.type === 'like') {
-      await supabase.from('likes').delete().eq('liker_id', user.id).eq('liked_id', lastSwipe.targetId);
-    } else {
-      await supabase.from('passes').delete().eq('passer_id', user.id).eq('passed_id', lastSwipe.targetId);
-    }
+    const undoTarget = lastSwipe;
     setLastSwipe(null);
     setCurrentIndex((prev) => Math.max(0, prev - 1));
+    (async () => {
+      if (undoTarget.type === 'like') {
+        await supabase.from('likes').delete().eq('liker_id', user.id).eq('liked_id', undoTarget.targetId);
+      } else {
+        await supabase.from('passes').delete().eq('passer_id', user.id).eq('passed_id', undoTarget.targetId);
+      }
+    })();
   };
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
@@ -197,6 +211,7 @@ export function DiscoverPage() {
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!dragStart) return;
+    if ('touches' in e) e.preventDefault();
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     setDragOffset({ x: clientX - dragStart.x, y: clientY - dragStart.y });
@@ -229,20 +244,27 @@ export function DiscoverPage() {
         const { latitude, longitude } = pos.coords;
         setUserLocation({ lat: latitude, lng: longitude });
         if (user) {
+          const nearest = getNearestCity(latitude, longitude);
           await supabase.from('profiles').update({
             latitude,
             longitude,
+            ...(nearest ? { city: nearest } : {}),
           }).eq('id', user.id);
           await refreshProfile();
         }
         setLocating(false);
         showToast(t('settings.saved'), 'success');
       },
-      () => {
-        showToast(t('discover.locationError'), 'error');
+      (err) => {
+        const msg = err.code === err.PERMISSION_DENIED
+          ? t('discover.locationPermissionDenied')
+          : err.code === err.POSITION_UNAVAILABLE
+            ? t('discover.locationUnavailable')
+            : t('discover.locationTimeout');
+        showToast(msg, 'error');
         setLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 }
     );
   };
 
@@ -298,11 +320,12 @@ export function DiscoverPage() {
                   <div
                     key={p.id}
                     ref={isTop ? cardRef : null}
-                    className={`absolute inset-0 ${isTop ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                    className={`absolute inset-0 ${isTop ? 'cursor-grab active:cursor-grabbing' : 'animate-card-enter'}`}
                     style={{
                       transform: isTop ? `translate(${dragOffset.x}px, ${dragOffset.y}px) rotate(${rotation}deg) scale(${scale})` : `scale(${scale})`,
                       opacity,
                       zIndex: isTop ? 10 : 5,
+                      touchAction: isTop ? 'none' : 'auto',
                     }}
                     onMouseDown={isTop ? handleMouseDown : undefined}
                     onMouseMove={isTop ? handleMouseMove : undefined}
@@ -331,13 +354,13 @@ export function DiscoverPage() {
               </button>
               <button
                 onClick={() => handleSwipe('left')}
-                className="w-14 h-14 rounded-full bg-white dark:bg-gray-800 shadow-lg flex items-center justify-center text-error-500 hover:scale-110 active:scale-95 transition-transform"
+                className={`w-14 h-14 rounded-full bg-white dark:bg-gray-800 shadow-lg flex items-center justify-center text-error-500 hover:scale-110 active:scale-95 transition-transform ${btnAnim === 'pass' ? 'animate-pass-shake' : ''}`}
               >
                 <X size={28} />
               </button>
               <button
                 onClick={() => handleSwipe('right')}
-                className="w-14 h-14 rounded-full bg-white dark:bg-gray-800 shadow-lg flex items-center justify-center text-success-500 hover:scale-110 active:scale-95 transition-transform"
+                className={`w-14 h-14 rounded-full bg-white dark:bg-gray-800 shadow-lg flex items-center justify-center text-success-500 hover:scale-110 active:scale-95 transition-transform ${btnAnim === 'like' ? 'animate-like-pop' : ''}`}
               >
                 <Heart size={28} />
               </button>

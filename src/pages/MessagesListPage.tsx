@@ -56,9 +56,9 @@ export function MessagesListPage() {
       })
     );
 
-    // Sort by last message time
+    // Sort by last message time, keep conversations with no messages at top
     const sorted = enriched
-      .filter((c) => c.other_profile && c.last_message)
+      .filter((c) => c.other_profile)
       .sort((a, b) => {
         const aTime = a.last_message?.created_at || a.created_at;
         const bTime = b.last_message?.created_at || b.created_at;

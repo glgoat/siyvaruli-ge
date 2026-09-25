@@ -150,7 +150,7 @@ export function ChatPage({ matchId }: { matchId: string }) {
       match_id: matchId,
       sender_id: user.id,
       content,
-    }).select().single();
+    }).select().maybeSingle();
 
     if (data) {
       setMessages((prev) => [...prev, data as Message]);

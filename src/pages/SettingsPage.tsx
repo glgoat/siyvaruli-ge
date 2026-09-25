@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { User, Lock, Globe, Moon, Bell, Eye, Heart, Pause, Trash2, LogOut, ChevronRight, Shield } from 'lucide-react';
+import { User, Lock, Globe, Moon, Bell, Eye, Heart, Pause, Trash2, LogOut, ChevronRight, Shield, Navigation } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useLanguage } from '@/lib/language-context';
 import { useTheme } from '@/lib/theme-context';
 import { useToast } from '@/lib/toast-context';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
+import { getNearestCity } from '@/lib/constants';
 import { Modal, ModalBody } from '@/components/ui/Modal';
 import type { TranslationKey } from '@/lib/i18n';
 
@@ -19,6 +20,7 @@ export function SettingsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [locating, setLocating] = useState(false);
 
   const updateSetting = async (key: string, value: boolean | string) => {
     if (!user) return;
@@ -54,6 +56,40 @@ export function SettingsPage() {
     showToast(t('settings.saved'), 'success');
   };
 
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      showToast(t('discover.locationError'), 'error');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        if (user) {
+          const nearest = getNearestCity(latitude, longitude);
+          await supabase.from('profiles').update({
+            latitude,
+            longitude,
+            ...(nearest ? { city: nearest } : {}),
+          }).eq('id', user.id);
+          await refreshProfile();
+        }
+        setLocating(false);
+        showToast(t('settings.saved'), 'success');
+      },
+      (err) => {
+        const msg = err.code === err.PERMISSION_DENIED
+          ? t('discover.locationPermissionDenied')
+          : err.code === err.POSITION_UNAVAILABLE
+            ? t('discover.locationUnavailable')
+            : t('discover.locationTimeout');
+        showToast(msg, 'error');
+        setLocating(false);
+      },
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 }
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 px-4 py-3">
@@ -70,12 +106,10 @@ export function SettingsPage() {
 
         {/* Preferences */}
         <Section title={t('settings.preferences')}>
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-3 mb-3">
-              <Globe size={20} className="text-gray-400" />
-              <span className="flex-1 text-sm font-medium">{t('settings.language')}</span>
-            </div>
-            <div className="flex items-center rounded-full bg-gray-100 dark:bg-gray-800 p-0.5 text-sm ml-8">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
+            <span className="text-gray-400"><Globe size={20} /></span>
+            <span className="flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{t('settings.language')}</span>
+            <div className="flex items-center rounded-full bg-gray-100 dark:bg-gray-800 p-0.5 text-sm">
               <button onClick={() => setLang('ka')} className={`px-3 py-1 rounded-full font-medium transition-colors ${lang === 'ka' ? 'bg-white dark:bg-gray-700 text-primary-500 shadow-sm' : 'text-gray-500'}`}>ქართული</button>
               <button onClick={() => setLang('en')} className={`px-3 py-1 rounded-full font-medium transition-colors ${lang === 'en' ? 'bg-white dark:bg-gray-700 text-primary-500 shadow-sm' : 'text-gray-500'}`}>English</button>
             </div>
@@ -88,6 +122,11 @@ export function SettingsPage() {
           <ToggleRow icon={<Bell size={20} />} label={t('settings.matchNotifications')} value={settings?.match_notifications ?? true} onChange={(v) => updateSetting('match_notifications', v)} />
           <ToggleRow icon={<Bell size={20} />} label={t('settings.messageNotifications')} value={settings?.message_notifications ?? true} onChange={(v) => updateSetting('message_notifications', v)} />
           <ToggleRow icon={<Heart size={20} />} label={t('settings.likeNotifications')} value={settings?.like_notifications ?? true} onChange={(v) => updateSetting('like_notifications', v)} />
+        </Section>
+
+        {/* Discovery */}
+        <Section title={t('settings.discovery')}>
+          <SettingRow icon={<Navigation size={20} className={locating ? 'animate-pulse' : ''} />} label={t('discover.useMyLocation')} onClick={handleUseMyLocation} />
         </Section>
 
         {/* Privacy */}
@@ -164,9 +203,9 @@ function ToggleRow({ icon, label, value, onChange }: { icon: React.ReactNode; la
       <span className="flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{label}</span>
       <button
         onClick={() => onChange(!value)}
-        className={`relative w-11 h-6 rounded-full transition-colors ${value ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-700'}`}
+        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${value ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-700'}`}
       >
-        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${value ? 'translate-x-5' : 'translate-x-0.5'}`} />
+        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${value ? 'translate-x-5' : 'translate-x-0'}`} />
       </button>
     </div>
   );

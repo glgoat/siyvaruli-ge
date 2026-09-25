@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Heart, ArrowLeft, Mail } from 'lucide-react';
+import { Heart, ArrowLeft, Mail, Navigation } from 'lucide-react';
 import { Link, useRouter } from '@/lib/router';
 import { useLanguage } from '@/lib/language-context';
 import { useToast } from '@/lib/toast-context';
 import { supabase } from '@/lib/supabase';
-import { GEORGIAN_CITIES, is18Plus, getCityCoordinates } from '@/lib/constants';
+import { GEORGIAN_CITIES, is18Plus, getCityCoordinates, getNearestCity } from '@/lib/constants';
 import type { TranslationKey } from '@/lib/i18n';
 
 export function AuthPage({ mode }: { mode: 'login' | 'signup' | 'reset' }) {
@@ -21,14 +21,16 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' | 'reset' }) {
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('');
   const [interestedIn, setInterestedIn] = useState('');
+  const [intention, setIntention] = useState('');
   const [city, setCity] = useState('');
+  const [detecting, setDetecting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (mode === 'signup') {
-      if (!email || !password || !firstName || !dob || !gender || !interestedIn || !city) {
+      if (!email || !password || !firstName || !dob || !gender || !interestedIn || !city || !intention) {
         setError(t('auth.required'));
         return;
       }
@@ -67,6 +69,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' | 'reset' }) {
           date_of_birth: dob,
           gender,
           interested_in: interestedIn,
+          relationship_intention: intention,
           city,
           latitude: coords?.lat ?? null,
           longitude: coords?.lng ?? null,
@@ -106,15 +109,49 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' | 'reset' }) {
     }
   };
 
+  const handleDetectLocation = () => {
+    if (!navigator.geolocation) {
+      showToast(t('discover.locationError'), 'error');
+      return;
+    }
+    setDetecting(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const nearest = getNearestCity(latitude, longitude);
+        if (nearest) {
+          setCity(nearest);
+          showToast(t('settings.saved'), 'success');
+        } else {
+          showToast(t('discover.locationError'), 'error');
+        }
+        setDetecting(false);
+      },
+      (err) => {
+        const msg = err.code === err.PERMISSION_DENIED
+          ? t('discover.locationPermissionDenied')
+          : err.code === err.POSITION_UNAVAILABLE
+            ? t('discover.locationUnavailable')
+            : t('discover.locationTimeout');
+        showToast(msg, 'error');
+        setDetecting(false);
+      },
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 }
+    );
+  };
+
   const handleGoogleLogin = async () => {
+    setLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/#/discover`,
+        redirectTo: window.location.origin,
       },
     });
     if (error) {
-      setError(error.message);
+      setError(error.message.includes('provider') || error.message.includes('not')
+        ? t('auth.googleNotConfigured')
+        : error.message);
       setLoading(false);
     }
   };
@@ -194,13 +231,44 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' | 'reset' }) {
                   </div>
                 </div>
                 <div>
-                  <label className={labelClass}>{t('auth.city')}</label>
-                  <select className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} required>
-                    <option value="">{t('auth.selectCity')}</option>
-                    {GEORGIAN_CITIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                  <label className={labelClass}>{t('auth.intention')}</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'serious', labelKey: 'intention.serious' },
+                      { value: 'casual', labelKey: 'intention.casual' },
+                      { value: 'friendship', labelKey: 'intention.friendship' },
+                      { value: 'not_sure', labelKey: 'intention.not_sure' },
+                    ] as const).map((it) => (
+                      <button
+                        key={it.value}
+                        type="button"
+                        onClick={() => setIntention(it.value)}
+                        className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${intention === it.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-950 text-primary-600 dark:text-primary-400' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'}`}
+                      >
+                        {t(it.labelKey as TranslationKey)}
+                      </button>
                     ))}
-                  </select>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelClass}>{t('auth.city')}</label>
+                  <div className="flex gap-2">
+                    <select className={`${inputClass} flex-1`} value={city} onChange={(e) => setCity(e.target.value)} required>
+                      <option value="">{t('auth.selectCity')}</option>
+                      {GEORGIAN_CITIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleDetectLocation}
+                      disabled={detecting}
+                      className="btn-secondary shrink-0 px-3"
+                      title={t('auth.detectLocation')}
+                    >
+                      <Navigation size={18} className={detecting ? 'animate-pulse' : ''} />
+                    </button>
+                  </div>
                 </div>
               </>
             )}

@@ -48,6 +48,19 @@ export function getCityCoordinates(city: string): { lat: number; lng: number } |
   return CITY_COORDINATES[city] || null;
 }
 
+export function getNearestCity(lat: number, lng: number): string | null {
+  let nearest: string | null = null;
+  let minDist = Infinity;
+  for (const [city, coords] of Object.entries(CITY_COORDINATES)) {
+    const dist = calculateDistance(lat, lng, coords.lat, coords.lng);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = city;
+    }
+  }
+  return nearest;
+}
+
 export function calculateDistance(
   lat1: number,
   lng1: number,
