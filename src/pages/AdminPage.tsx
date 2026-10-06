@@ -5,11 +5,15 @@ import { useLanguage } from '@/lib/language-context';
 import { useToast } from '@/lib/toast-context';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
-import { calculateAge, timeAgo } from '@/lib/constants';
+import { calculateAge, timeAgo, REPORT_REASONS } from '@/lib/constants';
 import type { Profile, Report, VerificationRequest } from '@/lib/types';
 import type { TranslationKey } from '@/lib/i18n';
 import { EmptyState } from '@/components/ui/Feedback';
 import { Modal, ModalBody } from '@/components/ui/Modal';
+
+const REPORT_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  REPORT_REASONS.map((r) => [r.value, r.labelKey])
+);
 
 export function AdminPage() {
   const { user, isAdmin } = useAuth();
@@ -19,11 +23,13 @@ export function AdminPage() {
   const [tab, setTab] = useState<'dashboard' | 'users' | 'reports' | 'verification'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<Profile[]>([]);
-  const [reports, setReports] = useState<Report[]>([]);
-  const [verifications, setVerifications] = useState<VerificationRequest[]>([]);
+  const [reports, setReports] = useState<(Report & { reported_name?: string; reporter_name?: string })[]>([]);
+  const [verifications, setVerifications] = useState<(VerificationRequest & { user_name?: string })[]>([]);
   const [stats, setStats] = useState({ totalUsers: 0, totalMatches: 0, totalMessages: 0, pendingReports: 0, pendingVerifications: 0, activeUsers: 0, newUsers: 0 });
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+  const [reportFilter, setReportFilter] = useState<'pending' | 'all'>('pending');
 
   const loadDashboard = useCallback(async () => {
     const [usersRes, matchesRes, messagesRes, reportsRes, verifRes, activeRes, newRes] = await Promise.all([
@@ -48,22 +54,66 @@ export function AdminPage() {
   }, []);
 
   const loadUsers = useCallback(async () => {
+    setTabLoading(true);
     let query = supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(50);
     if (searchQuery) {
       query = query.or(`first_name.ilike.%${searchQuery}%,city.ilike.%${searchQuery}%`);
     }
     const { data } = await query;
-    setUsers(data || []);
+    setUsers(data as Profile[] || []);
+    setTabLoading(false);
   }, [searchQuery]);
 
   const loadReports = useCallback(async () => {
-    const { data } = await supabase.from('reports').select('*').order('created_at', { ascending: false }).limit(50);
-    setReports(data || []);
-  }, []);
+    setTabLoading(true);
+    let query = supabase.from('reports').select('*').order('created_at', { ascending: false }).limit(50);
+    if (reportFilter === 'pending') {
+      query = query.eq('status', 'pending');
+    }
+    const { data } = await query;
+    const reports = (data as Report[]) || [];
+
+    if (reports.length > 0) {
+      const reportedIds = [...new Set(reports.map((r) => r.reported_id))];
+      const reporterIds = [...new Set(reports.map((r) => r.reporter_id))];
+      const [reportedRes, reporterRes] = await Promise.all([
+        supabase.from('profiles').select('id, first_name').in('id', reportedIds),
+        supabase.from('profiles').select('id, first_name').in('id', reporterIds),
+      ]);
+      const nameMap = new Map<string, string>();
+      (reportedRes.data || []).forEach((p) => nameMap.set(p.id, p.first_name));
+      (reporterRes.data || []).forEach((p) => nameMap.set(p.id, p.first_name));
+
+      setReports(reports.map((r) => ({
+        ...r,
+        reported_name: nameMap.get(r.reported_id),
+        reporter_name: nameMap.get(r.reporter_id),
+      })));
+    } else {
+      setReports([]);
+    }
+    setTabLoading(false);
+  }, [reportFilter]);
 
   const loadVerifications = useCallback(async () => {
+    setTabLoading(true);
     const { data } = await supabase.from('verification_requests').select('*').eq('status', 'pending').order('created_at', { ascending: false });
-    setVerifications(data || []);
+    const verifs = (data as VerificationRequest[]) || [];
+
+    if (verifs.length > 0) {
+      const userIds = [...new Set(verifs.map((v) => v.user_id))];
+      const { data: profileData } = await supabase.from('profiles').select('id, first_name').in('id', userIds);
+      const nameMap = new Map<string, string>();
+      (profileData || []).forEach((p) => nameMap.set(p.id, p.first_name));
+
+      setVerifications(verifs.map((v) => ({
+        ...v,
+        user_name: nameMap.get(v.user_id),
+      })));
+    } else {
+      setVerifications([]);
+    }
+    setTabLoading(false);
   }, []);
 
   useEffect(() => {
@@ -80,7 +130,7 @@ export function AdminPage() {
   const handleSuspend = async (userId: string) => {
     await supabase.from('profiles').update({ is_suspended: true, suspended_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() }).eq('id', userId);
     await supabase.from('moderation_actions').insert({ admin_id: user!.id, action: 'suspend', target_user_id: userId });
-    showToast('User suspended', 'success');
+    showToast(t('admin.userSuspended'), 'success');
     setSelectedUser(null);
     loadUsers();
   };
@@ -88,7 +138,7 @@ export function AdminPage() {
   const handleBan = async (userId: string) => {
     await supabase.from('profiles').update({ is_suspended: true, suspended_until: null }).eq('id', userId);
     await supabase.from('moderation_actions').insert({ admin_id: user!.id, action: 'ban', target_user_id: userId });
-    showToast('User banned', 'success');
+    showToast(t('admin.userBanned'), 'success');
     setSelectedUser(null);
     loadUsers();
   };
@@ -96,7 +146,7 @@ export function AdminPage() {
   const handleUnban = async (userId: string) => {
     await supabase.from('profiles').update({ is_suspended: false, suspended_until: null }).eq('id', userId);
     await supabase.from('moderation_actions').insert({ admin_id: user!.id, action: 'unban', target_user_id: userId });
-    showToast('User unbanned', 'success');
+    showToast(t('admin.userUnbanned'), 'success');
     setSelectedUser(null);
     loadUsers();
   };
@@ -104,7 +154,7 @@ export function AdminPage() {
   const handleDeleteUser = async (userId: string) => {
     await supabase.from('profiles').delete().eq('id', userId);
     await supabase.from('moderation_actions').insert({ admin_id: user!.id, action: 'delete', target_user_id: userId });
-    showToast('User deleted', 'success');
+    showToast(t('admin.userDeleted'), 'success');
     setSelectedUser(null);
     loadUsers();
   };
@@ -112,7 +162,7 @@ export function AdminPage() {
   const handleReportAction = async (reportId: string, status: 'actioned' | 'dismissed') => {
     await supabase.from('reports').update({ status, reviewed_at: new Date().toISOString(), reviewed_by: user!.id }).eq('id', reportId);
     await supabase.from('moderation_actions').insert({ admin_id: user!.id, action: `report_${status}`, report_id: reportId });
-    showToast('Report updated', 'success');
+    showToast(t('admin.reportUpdated'), 'success');
     loadReports();
     loadDashboard();
   };
@@ -121,7 +171,7 @@ export function AdminPage() {
     await supabase.from('verification_requests').update({ status: approved ? 'approved' : 'rejected', reviewed_at: new Date().toISOString(), reviewed_by: user!.id }).eq('id', reqId);
     await supabase.from('profiles').update({ verification_status: approved ? 'verified' : 'rejected', is_verified: approved }).eq('id', userId);
     await supabase.from('moderation_actions').insert({ admin_id: user!.id, action: `verification_${approved ? 'approved' : 'rejected'}`, target_user_id: userId });
-    showToast(approved ? 'Verification approved' : 'Verification rejected', 'success');
+    showToast(approved ? t('admin.verificationApproved') : t('admin.verificationRejected'), 'success');
     loadVerifications();
     loadDashboard();
   };
@@ -152,7 +202,11 @@ export function AdminPage() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-4">
-        {tab === 'dashboard' && (
+        {loading && tab === 'dashboard' ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {Array.from({ length: 7 }).map((_, i) => <div key={i} className="card p-4 skeleton h-24" />)}
+          </div>
+        ) : tab === 'dashboard' ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <StatCard label={t('admin.totalUsers')} value={stats.totalUsers} icon={<Users size={20} />} />
             <StatCard label={t('admin.totalMatches')} value={stats.totalMatches} icon={<UserCheck size={20} />} />
@@ -162,7 +216,7 @@ export function AdminPage() {
             <StatCard label={t('admin.activeUsers')} value={stats.activeUsers} icon={<Users size={20} />} />
             <StatCard label={t('admin.newUsers')} value={stats.newUsers} icon={<Users size={20} />} />
           </div>
-        )}
+        ) : null}
 
         {tab === 'users' && (
           <div>
@@ -173,51 +227,98 @@ export function AdminPage() {
               </div>
               <button onClick={loadUsers} className="btn-primary btn-sm">{t('common.search')}</button>
             </div>
-            <div className="space-y-2">
-              {users.map((u) => (
-                <div key={u.id} className="card p-3 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center text-primary-500 font-bold">
-                    {u.first_name.charAt(0).toUpperCase()}
+            {tabLoading ? (
+              <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="card p-3 h-14 skeleton" />)}</div>
+            ) : (
+              <div className="space-y-2">
+                {users.map((u) => (
+                  <div key={u.id} className="card p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center text-primary-500 font-bold">
+                      {u.first_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{u.first_name} {u.date_of_birth && calculateAge(u.date_of_birth)} {u.city && `· ${u.city}`}</p>
+                      <p className="text-xs text-gray-400">{timeAgo(u.created_at, lang)} {u.is_suspended && `· ${t('admin.suspended')}`}</p>
+                    </div>
+                    <button onClick={() => setSelectedUser(u)} className="btn-ghost btn-sm">{t('admin.actions')}</button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{u.first_name} {u.date_of_birth && calculateAge(u.date_of_birth)} {u.city && `· ${u.city}`}</p>
-                    <p className="text-xs text-gray-400">{timeAgo(u.created_at, lang)} {u.is_suspended && '· SUSPENDED'}</p>
-                  </div>
-                  <button onClick={() => setSelectedUser(u)} className="btn-ghost btn-sm">{t('admin.actions')}</button>
-                </div>
-              ))}
-              {users.length === 0 && <EmptyState icon={<Users size={32} />} title={t('common.notFound')} description="" />}
-            </div>
+                ))}
+                {users.length === 0 && <EmptyState icon={<Users size={32} />} title={t('common.notFound')} description="" />}
+              </div>
+            )}
           </div>
         )}
 
         {tab === 'reports' && (
-          <div className="space-y-2">
-            {reports.length === 0 ? (
+          <div>
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setReportFilter('pending')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${reportFilter === 'pending' ? 'bg-primary-500 text-white' : 'text-gray-500 bg-gray-100 dark:bg-gray-800'}`}
+              >
+                {t('admin.pendingReports')}
+              </button>
+              <button
+                onClick={() => setReportFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${reportFilter === 'all' ? 'bg-primary-500 text-white' : 'text-gray-500 bg-gray-100 dark:bg-gray-800'}`}
+              >
+                {t('admin.allReports')}
+              </button>
+            </div>
+            {tabLoading ? (
+              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="card p-4 h-28 skeleton" />)}</div>
+            ) : reports.length === 0 ? (
               <EmptyState icon={<Flag size={32} />} title={t('admin.noReports')} description="" />
-            ) : reports.map((r) => (
-              <div key={r.id} className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="badge bg-error-50 dark:bg-error-900/30 text-error-600 dark:text-error-400">{t(`report.${r.reason}` as TranslationKey)}</span>
-                  <span className="text-xs text-gray-400">{timeAgo(r.created_at, lang)}</span>
-                </div>
-                {r.description && <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{r.description}</p>}
-                <div className="flex gap-2">
-                  <button onClick={() => handleReportAction(r.id, 'actioned')} className="btn-danger btn-sm flex-1"><Ban size={16} /> {t('admin.review')}</button>
-                  <button onClick={() => handleReportAction(r.id, 'dismissed')} className="btn-secondary btn-sm flex-1">{t('admin.dismiss')}</button>
-                </div>
+            ) : (
+              <div className="space-y-2">
+                {reports.map((r) => {
+                  const labelKey = REPORT_LABEL_MAP[r.reason];
+                  return (
+                    <div key={r.id} className="card p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="badge bg-error-50 dark:bg-error-900/30 text-error-600 dark:text-error-400">
+                          {labelKey ? t(labelKey as TranslationKey) : r.reason}
+                        </span>
+                        <span className="text-xs text-gray-400">{timeAgo(r.created_at, lang)}</span>
+                      </div>
+                      {(r.reported_name || r.reporter_name) && (
+                        <p className="text-xs text-gray-500 mb-2">
+                          {r.reported_name && <span>{t('admin.reportedUser')}: <strong>{r.reported_name}</strong></span>}
+                          {r.reported_name && r.reporter_name && ' · '}
+                          {r.reporter_name && <span>{t('admin.reportedBy')}: {r.reporter_name}</span>}
+                        </p>
+                      )}
+                      {r.description && <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{r.description}</p>}
+                      <div className="flex gap-2">
+                        {r.status === 'pending' ? (
+                          <>
+                            <button onClick={() => handleReportAction(r.id, 'actioned')} className="btn-danger btn-sm flex-1"><Ban size={16} /> {t('admin.review')}</button>
+                            <button onClick={() => handleReportAction(r.id, 'dismissed')} className="btn-secondary btn-sm flex-1">{t('admin.dismiss')}</button>
+                          </>
+                        ) : (
+                          <span className={`badge text-xs ${r.status === 'actioned' ? 'bg-error-50 dark:bg-error-900/30 text-error-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'}`}>{r.status}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            )}
           </div>
         )}
 
         {tab === 'verification' && (
           <div className="space-y-2">
-            {verifications.length === 0 ? (
+            {tabLoading ? (
+              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="card p-4 h-40 skeleton" />)}</div>
+            ) : verifications.length === 0 ? (
               <EmptyState icon={<Shield size={32} />} title={t('admin.noVerifications')} description="" />
             ) : verifications.map((v) => (
               <div key={v.id} className="card p-4">
-                <p className="text-sm text-gray-500 mb-2">{timeAgo(v.created_at, lang)}</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-medium">{v.user_name || 'Unknown'}</p>
+                  <p className="text-xs text-gray-400">{timeAgo(v.created_at, lang)}</p>
+                </div>
                 {v.selfie_photo_url && <img src={v.selfie_photo_url} alt="" className="w-24 h-24 rounded-xl object-cover mb-3" />}
                 {v.notes && <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{v.notes}</p>}
                 <div className="flex gap-2">
@@ -230,12 +331,11 @@ export function AdminPage() {
         )}
       </div>
 
-      {/* User action modal */}
       {selectedUser && (
         <Modal isOpen={!!selectedUser} onClose={() => setSelectedUser(null)}>
           <ModalBody className="p-6">
             <h3 className="font-bold mb-1">{selectedUser.first_name}</h3>
-            <p className="text-sm text-gray-400 mb-4">{selectedUser.city} · {selectedUser.is_suspended ? 'Suspended' : 'Active'}</p>
+            <p className="text-sm text-gray-400 mb-4">{selectedUser.city} · {selectedUser.is_suspended ? t('admin.suspended') : t('admin.active')}</p>
             <div className="space-y-2">
               {!selectedUser.is_suspended && (
                 <>
